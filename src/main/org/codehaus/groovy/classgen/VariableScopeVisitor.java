@@ -50,6 +50,7 @@ public class VariableScopeVisitor extends ClassCodeVisitorSupport {
     private boolean isSpecialConstructorCall = false;
     private boolean inConstructor = false;
     private final boolean recurseInnerClasses;
+    private int closureDepth;
 
     private LinkedList stateStack = new LinkedList();
 
@@ -231,14 +232,16 @@ public class VariableScopeVisitor extends ClassCodeVisitorSupport {
 
             ClassNode classScope = scope.getClassScope();
             if (classScope != null) {
-                Variable member = findClassMember(classScope, var.getName());
-                if (member != null) {
-                    boolean staticScope = crossingStaticContext || isSpecialConstructorCall;
-                    boolean staticMember = member.isInStaticContext();
-                    // We don't allow a static context (e.g. a static method) to access
-                    // a non-static variable (e.g. a non-static field).
-                    if (!(staticScope && !staticMember))
-                        var = member;
+                if (closureDepth == 0) {
+                    Variable member = findClassMember(classScope, var.getName());
+                    if (member != null) {
+                        boolean staticScope = crossingStaticContext || isSpecialConstructorCall;
+                        boolean staticMember = member.isInStaticContext();
+                        // We don't allow a static context (e.g. a static method) to access
+                        // a non-static variable (e.g. a non-static field).
+                        if (!(staticScope && !staticMember))
+                            var = member;
+                    }
                 }
                 break;
             }
@@ -407,7 +410,14 @@ public class VariableScopeVisitor extends ClassCodeVisitorSupport {
     }
 
     public void visitClosureExpression(ClosureExpression expression) {
+        visitClosureExpression(expression, false);
+    }
+
+    private void visitClosureExpression(ClosureExpression expression, boolean isAICBody) {
         pushState();
+        if (!isAICBody) {
+            closureDepth++;
+        }
 
         expression.setVariableScope(currentScope);
 
@@ -429,6 +439,9 @@ public class VariableScopeVisitor extends ClassCodeVisitorSupport {
         super.visitClosureExpression(expression);
         markClosureSharedVariables();
 
+        if (!isAICBody) {
+            closureDepth--;
+        }
         popState();
     }
 
@@ -549,7 +562,7 @@ public class VariableScopeVisitor extends ClassCodeVisitorSupport {
             Parameter[] parameters = method.getParameters();
             if (parameters.length == 0) parameters = null; // null means no implicit "it"
             ClosureExpression cl = new ClosureExpression(parameters, method.getCode());
-            visitClosureExpression(cl);
+            visitClosureExpression(cl, true);
         }
 
         for (FieldNode field : innerClass.getFields()) {

@@ -533,4 +533,24 @@ import org.codehaus.groovy.transform.sc.ListOfExpressionsExpression
             foo?.id = 'new'
         '''
     }
+
+    void test1() {
+        assertScript '''
+            class SubClass {
+                List type
+            }
+
+            class TopClass {
+                int type
+
+                void test() {
+                    def subClass = new SubClass()
+                    subClass.with {
+                        type = ['String']
+                    }
+                }
+            }
+            new TopClass().test()
+        '''
+    }
 }
