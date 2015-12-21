@@ -66,6 +66,7 @@ import org.codehaus.groovy.runtime.DefaultGroovyMethods;
 import org.codehaus.groovy.runtime.MetaClassHelper;
 import org.codehaus.groovy.syntax.SyntaxException;
 import org.codehaus.groovy.syntax.Token;
+import org.codehaus.groovy.transform.AbstractASTTransformation;
 import org.codehaus.groovy.transform.StaticTypesTransformation;
 import org.codehaus.groovy.transform.trait.Traits;
 import org.codehaus.groovy.util.ListHashMap;
@@ -231,11 +232,42 @@ public class StaticTypeCheckingVisitor extends ClassCodeVisitorSupport {
         typeCheckingContext.setCompilationUnit(cu);
     }
 
+    private List<TypeCheckingExtension> getTypeCheckingExtensions(AnnotatedNode node) {
+        AnnotationNode stcAnnotation = null;
+        for (ClassNode stcType: getTypeCheckingAnnotations()) {
+            List<AnnotationNode> annotations = node.getAnnotations(stcType);
+            if (!annotations.isEmpty()) {
+                stcAnnotation = annotations.get(0);
+                break;
+            }
+        }
+        if (stcAnnotation != null) {
+            List<String> extensionNames = AbstractASTTransformation.getMemberStringList(stcAnnotation, "extensions");
+
+            if (extensionNames != null && !extensionNames.isEmpty()) {
+                List<TypeCheckingExtension> extensions = new LinkedList<TypeCheckingExtension>();
+                for (String name: extensionNames) {
+                    extensions.add(new GroovyTypeCheckingExtensionSupport(this, name, typeCheckingContext.compilationUnit));
+                }
+                return extensions;
+            }
+            return Collections.<TypeCheckingExtension>emptyList();
+        }
+        return null;
+    }
+
     @Override
     public void visitClass(final ClassNode node) {
         if (shouldSkipClassNode(node)) return;
+        List<TypeCheckingExtension> localExtensions = getTypeCheckingExtensions(node);
+        if (localExtensions != null) {
+            extension.pushLocalHandlers(localExtensions);
+        }
         if (extension.beforeVisitClass(node)) {
             extension.afterVisitClass(node);
+            if (localExtensions != null) {
+                extension.popLocalHandlers();
+            }
             return;
         }
         Object type = node.getNodeMetaData(StaticTypesMarker.INFERRED_TYPE);
@@ -264,6 +296,9 @@ public class StaticTypeCheckingVisitor extends ClassCodeVisitorSupport {
             constructorNode.putNodeMetaData(StaticTypeCheckingVisitor.class, Boolean.TRUE);
         }
         extension.afterVisitClass(node);
+        if (localExtensions != null) {
+            extension.popLocalHandlers();
+        }
     }
 
     protected boolean shouldSkipClassNode(final ClassNode node) {
@@ -2061,16 +2096,24 @@ public class StaticTypeCheckingVisitor extends ClassCodeVisitorSupport {
             // method has already been visited by a static type checking visitor
             return;
         }
-        if (!extension.beforeVisitMethod(node)) {
-        ErrorCollector collector = (ErrorCollector) node.getNodeMetaData(ERROR_COLLECTOR);
-        if (collector != null) {
-            typeCheckingContext.getErrorCollector().addCollectorContents(collector);
-        } else {
-            startMethodInference(node, typeCheckingContext.getErrorCollector());
+
+        List<TypeCheckingExtension> localExtensions = getTypeCheckingExtensions(node);
+        if (localExtensions != null) {
+            extension.pushLocalHandlers(localExtensions);
         }
-        node.removeNodeMetaData(ERROR_COLLECTOR);
+        if (!extension.beforeVisitMethod(node)) {
+            ErrorCollector collector = (ErrorCollector) node.getNodeMetaData(ERROR_COLLECTOR);
+            if (collector != null) {
+                typeCheckingContext.getErrorCollector().addCollectorContents(collector);
+            } else {
+                startMethodInference(node, typeCheckingContext.getErrorCollector());
+            }
+            node.removeNodeMetaData(ERROR_COLLECTOR);
         }
         extension.afterVisitMethod(node);
+        if (localExtensions != null) {
+            extension.popLocalHandlers();
+        }
     }
 
     @Override

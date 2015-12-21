@@ -181,4 +181,22 @@ class AnonymousInnerClassSTCTest extends StaticTypeCheckingTestCase {
             }
         '''
     }
+
+    void test1() {
+        assertScript '''
+            import groovy.transform.TypeChecked
+            import groovy.transform.stc.PrecompiledExtension
+
+            @groovy.transform.TypeChecked(extensions = ['groovy.transform.stc.PrecompiledExtensionNotExtendingDSL'])
+            class Foo {
+
+                @groovy.transform.TypeChecked
+                void bar() {
+                    println 'pls'
+                }
+            }
+            null
+        '''
+
+    }
 }

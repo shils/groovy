@@ -24,10 +24,8 @@ import org.codehaus.groovy.ast.MethodNode;
 import org.codehaus.groovy.ast.expr.*;
 import org.codehaus.groovy.ast.stmt.ReturnStatement;
 
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
+import java.lang.reflect.Type;
+import java.util.*;
 
 /**
  * The default type checking handler is used by the standard type checker and doesn't handle
@@ -44,6 +42,7 @@ import java.util.List;
  */
 public class DefaultTypeCheckingExtension extends TypeCheckingExtension {
     protected final List<TypeCheckingExtension> handlers = new LinkedList<TypeCheckingExtension>();
+    protected final Deque<List<TypeCheckingExtension>> localHandlersStack = new ArrayDeque<List<TypeCheckingExtension>>();
 
     public DefaultTypeCheckingExtension(final StaticTypeCheckingVisitor typeCheckingVisitor) {
         super(typeCheckingVisitor);
@@ -57,22 +56,69 @@ public class DefaultTypeCheckingExtension extends TypeCheckingExtension {
         handlers.remove(handler);
     }
 
+    public void pushLocalHandlers(List<TypeCheckingExtension> localHandlers) {
+        localHandlersStack.push(localHandlers);
+    }
+
+    public void popLocalHandlers() {
+        localHandlersStack.pop();
+    }
+
+    private class HandlerIterator implements Iterator<TypeCheckingExtension> {
+        Iterator<TypeCheckingExtension> defaultHandlers;
+        Iterator<TypeCheckingExtension> localHandlers;
+        boolean exhaustedDefaults;
+
+        HandlerIterator(){
+            this.defaultHandlers = handlers.iterator();
+            if (!localHandlersStack.isEmpty()) {
+                this.localHandlers = localHandlersStack.peek().iterator();
+            } else {
+                this.localHandlers = Collections.<TypeCheckingExtension>emptyIterator();
+            }
+        }
+
+        @Override
+        public boolean hasNext() {
+            return exhaustedDefaults ? localHandlers.hasNext() : defaultHandlers.hasNext();
+        }
+
+        @Override
+        public TypeCheckingExtension next() {
+            if (exhaustedDefaults) {
+                return localHandlers.next();
+            } else {
+                TypeCheckingExtension tce = defaultHandlers.next();
+                if (!defaultHandlers.hasNext()) {
+                    exhaustedDefaults = true;
+                }
+                return tce;
+            }
+        }
+    }
+
     public boolean handleUnresolvedVariableExpression(VariableExpression vexp) {
-        for (TypeCheckingExtension handler : handlers) {
+        Iterator<TypeCheckingExtension> it = new HandlerIterator();
+        while (it.hasNext()) {
+            TypeCheckingExtension handler = it.next();
             if (handler.handleUnresolvedVariableExpression(vexp)) return true;
         }
         return false;
     }
 
     public boolean handleUnresolvedProperty(final PropertyExpression pexp) {
-        for (TypeCheckingExtension handler : handlers) {
+        Iterator<TypeCheckingExtension> it = new HandlerIterator();
+        while (it.hasNext()) {
+            TypeCheckingExtension handler = it.next();
             if (handler.handleUnresolvedProperty(pexp)) return true;
         }
         return false;
     }
 
     public boolean handleUnresolvedAttribute(final AttributeExpression aexp) {
-        for (TypeCheckingExtension handler : handlers) {
+        Iterator<TypeCheckingExtension> it = new HandlerIterator();
+        while (it.hasNext()) {
+            TypeCheckingExtension handler = it.next();
             if (handler.handleUnresolvedAttribute(aexp)) return true;
         }
         return false;
@@ -80,7 +126,9 @@ public class DefaultTypeCheckingExtension extends TypeCheckingExtension {
 
     @Override
     public boolean handleIncompatibleAssignment(final ClassNode lhsType, final ClassNode rhsType, final Expression assignmentExpression) {
-        for (TypeCheckingExtension handler : handlers) {
+        Iterator<TypeCheckingExtension> it = new HandlerIterator();
+        while (it.hasNext()) {
+            TypeCheckingExtension handler = it.next();
             if (handler.handleIncompatibleAssignment(lhsType, rhsType, assignmentExpression)) return true;
         }
         return false;
@@ -88,7 +136,9 @@ public class DefaultTypeCheckingExtension extends TypeCheckingExtension {
 
     @Override
     public boolean handleIncompatibleReturnType(ReturnStatement returnStatement, ClassNode inferredReturnType) {
-        for (TypeCheckingExtension handler : handlers) {
+        Iterator<TypeCheckingExtension> it = new HandlerIterator();
+        while (it.hasNext()) {
+            TypeCheckingExtension handler = it.next();
             if (handler.handleIncompatibleReturnType(returnStatement, inferredReturnType)) return true;
         }
         return false;
@@ -97,7 +147,7 @@ public class DefaultTypeCheckingExtension extends TypeCheckingExtension {
     @Override
     public List<MethodNode> handleAmbiguousMethods(final List<MethodNode> nodes, final Expression origin) {
         List<MethodNode> result = nodes;
-        Iterator<TypeCheckingExtension> it = handlers.iterator();
+        Iterator<TypeCheckingExtension> it = new HandlerIterator();
         while (result.size()>1 && it.hasNext()) {
             result = it.next().handleAmbiguousMethods(result, origin);
         }
@@ -106,7 +156,9 @@ public class DefaultTypeCheckingExtension extends TypeCheckingExtension {
 
     public List<MethodNode> handleMissingMethod(final ClassNode receiver, final String name, final ArgumentListExpression argumentList, final ClassNode[] argumentTypes, final MethodCall call) {
         List<MethodNode> result = new LinkedList<MethodNode>();
-        for (TypeCheckingExtension handler : handlers) {
+        Iterator<TypeCheckingExtension> it = new HandlerIterator();
+        while (it.hasNext()) {
+            TypeCheckingExtension handler = it.next();
             List<MethodNode> handlerResult = handler.handleMissingMethod(receiver, name, argumentList, argumentTypes, call);
             for (MethodNode mn : handlerResult) {
                 if (mn.getDeclaringClass()==null) {
@@ -120,14 +172,18 @@ public class DefaultTypeCheckingExtension extends TypeCheckingExtension {
 
     @Override
     public void afterVisitMethod(final MethodNode node) {
-        for (TypeCheckingExtension handler : handlers) {
+        Iterator<TypeCheckingExtension> it = new HandlerIterator();
+        while (it.hasNext()) {
+            TypeCheckingExtension handler = it.next();
             handler.afterVisitMethod(node);
         }
     }
 
     @Override
     public boolean beforeVisitMethod(final MethodNode node) {
-        for (TypeCheckingExtension handler : handlers) {
+        Iterator<TypeCheckingExtension> it = new HandlerIterator();
+        while (it.hasNext()) {
+            TypeCheckingExtension handler = it.next();
             if (handler.beforeVisitMethod(node)) return true;
         }
         return false;
@@ -135,14 +191,18 @@ public class DefaultTypeCheckingExtension extends TypeCheckingExtension {
 
     @Override
     public void afterVisitClass(final ClassNode node) {
-        for (TypeCheckingExtension handler : handlers) {
+        Iterator<TypeCheckingExtension> it = new HandlerIterator();
+        while (it.hasNext()) {
+            TypeCheckingExtension handler = it.next();
             handler.afterVisitClass(node);
         }
     }
 
     @Override
     public boolean beforeVisitClass(final ClassNode node) {
-        for (TypeCheckingExtension handler : handlers) {
+        Iterator<TypeCheckingExtension> it = new HandlerIterator();
+        while (it.hasNext()) {
+            TypeCheckingExtension handler = it.next();
             if (handler.beforeVisitClass(node)) return true;
         }
         return false;
@@ -150,7 +210,9 @@ public class DefaultTypeCheckingExtension extends TypeCheckingExtension {
 
     @Override
     public void afterMethodCall(final MethodCall call) {
-        for (TypeCheckingExtension handler : handlers) {
+        Iterator<TypeCheckingExtension> it = new HandlerIterator();
+        while (it.hasNext()) {
+            TypeCheckingExtension handler = it.next();
             handler.afterMethodCall(call);
         }
 
@@ -158,7 +220,9 @@ public class DefaultTypeCheckingExtension extends TypeCheckingExtension {
 
     @Override
     public boolean beforeMethodCall(final MethodCall call) {
-        for (TypeCheckingExtension handler : handlers) {
+        Iterator<TypeCheckingExtension> it = new HandlerIterator();
+        while (it.hasNext()) {
+            TypeCheckingExtension handler = it.next();
             if (handler.beforeMethodCall(call)) return true;
         }
         return false;
@@ -166,23 +230,28 @@ public class DefaultTypeCheckingExtension extends TypeCheckingExtension {
 
     @Override
     public void onMethodSelection(final Expression expression, final MethodNode target) {
-        for (TypeCheckingExtension handler : handlers) {
+        Iterator<TypeCheckingExtension> it = new HandlerIterator();
+        while (it.hasNext()) {
+            TypeCheckingExtension handler = it.next();
             handler.onMethodSelection(expression, target);
         }
     }
 
     @Override
     public void setup() {
-        ArrayList<TypeCheckingExtension> copy = new ArrayList<TypeCheckingExtension>(handlers);
-        // we're using a copy here because new extensions can be added during the "setup" phase
-        for (TypeCheckingExtension handler : copy) {
+        Iterator<TypeCheckingExtension> it = new HandlerIterator();
+        // note that new extensions can be added during the "setup" phase
+        while (it.hasNext()) {
+            TypeCheckingExtension handler = it.next();
             handler.setup();
         }
     }
 
     @Override
     public void finish() {
-        for (TypeCheckingExtension handler : handlers) {
+        Iterator<TypeCheckingExtension> it = new HandlerIterator();
+        while (it.hasNext()) {
+            TypeCheckingExtension handler = it.next();
             handler.finish();
         }
     }
