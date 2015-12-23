@@ -33,8 +33,11 @@ import org.codehaus.groovy.control.SourceUnit;
 import org.codehaus.groovy.syntax.SyntaxException;
 import org.codehaus.groovy.transform.stc.GroovyTypeCheckingExtensionSupport;
 import org.codehaus.groovy.transform.stc.StaticTypeCheckingVisitor;
+import org.codehaus.groovy.transform.stc.TypeCheckingExtension;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -82,8 +85,15 @@ public class StaticTypesTransformation implements ASTTransformation, Compilation
     }
 
     protected void addTypeCheckingExtensions(StaticTypeCheckingVisitor visitor, Expression extensions) {
+        List<TypeCheckingExtension> localExtensions = collectTypeCheckingExtensions(visitor, extensions, new ArrayList<TypeCheckingExtension>());
+        if (!localExtensions.isEmpty()) {
+            visitor.addLocalTypeCheckingExtensions(localExtensions);
+        }
+    }
+
+    private List<TypeCheckingExtension> collectTypeCheckingExtensions(StaticTypeCheckingVisitor visitor, Expression extensions, List<TypeCheckingExtension> extensionsList) {
         if (extensions instanceof ConstantExpression) {
-            visitor.addTypeCheckingExtension(new GroovyTypeCheckingExtensionSupport(
+            extensionsList.add(new GroovyTypeCheckingExtensionSupport(
                     visitor,
                     extensions.getText(),
                     compilationUnit
@@ -94,6 +104,7 @@ public class StaticTypesTransformation implements ASTTransformation, Compilation
                 addTypeCheckingExtensions(visitor, ext);
             }
         }
+        return extensionsList;
     }
 
     /**

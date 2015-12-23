@@ -228,6 +228,10 @@ public class StaticTypeCheckingVisitor extends ClassCodeVisitorSupport {
         this.extension.addHandler(extension);
     }
 
+    public void addLocalTypeCheckingExtensions(List<TypeCheckingExtension> extensions) {
+        this.extension.pushLocalHandlers(extensions);
+    }
+
     public void setCompilationUnit(CompilationUnit cu) {
         typeCheckingContext.setCompilationUnit(cu);
     }
